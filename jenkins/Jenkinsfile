@@ -1,29 +1,34 @@
 pipeline {
-    agent {
-        docker {
-            image 'maven:3-alpine'
-            args '-v /root/.m2:/root/.m2'
+       docker.image('jhipster/jhipster:v6.10.5').inside('-u jhipster -e MAVEN_OPTS="-Duser.home=./"') {
+        stage('check java') {
+            sh "java -version"
         }
-    }
-    stages {
-        stage('Build') {
-            steps {
-                sh 'mvn -B -DskipTests clean package'
+
+        stage('clean') {
+            sh "chmod +x mvnw"
+            sh "./mvnw -ntp clean -P-webpack"
+        }
+        stage('nohttp') {
+            sh "./mvnw -ntp checkstyle:check"
+        }
+
+        stage('backend tests') {
+            try {
+                sh "./mvnw -ntp verify -P-webpack"
+            } catch(err) {
+                throw err
+            } finally {
+                junit '**/target/test-results/**/TEST-*.xml'
             }
         }
-        stage('Test') {
-            steps {
-                sh 'mvn test'
-            }
-            post {
-                always {
-                    junit 'target/surefire-reports/*.xml'
-                }
-            }
+
+        stage('packaging') {
+            sh "./mvnw -ntp verify -P-webpack deploy -Pprod -DskipTests"
+            archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
         }
-        stage('Deliver') {
-            steps {
-                sh './jenkins/scripts/deliver.sh'
+        stage('quality analysis') {
+            withSonarQubeEnv('sonar') {
+                sh "./mvnw -ntp initialize sonar:sonar"
             }
         }
     }
